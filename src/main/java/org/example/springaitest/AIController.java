@@ -1,5 +1,10 @@
 package org.example.springaitest;
 
+import org.apache.solr.client.solrj.SolrClient;
+import org.apache.solr.client.solrj.impl.HttpSolrClient;
+import org.example.springaitest.solrVectorStore.SolrAiSearchFilterExpressionConverter;
+import org.example.springaitest.solrVectorStore.SolrSearchVectorStoreOptions;
+import org.example.springaitest.solrVectorStore.SolrVectorStore;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.AbstractChatMemoryAdvisor;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
@@ -13,6 +18,7 @@ import org.springframework.ai.chat.prompt.AssistantPromptTemplate;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.chat.prompt.SystemPromptTemplate;
 import org.springframework.ai.ollama.OllamaChatModel;
+import org.springframework.ai.ollama.OllamaEmbeddingModel;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,11 +41,14 @@ class AIController {
     private Resource systemPrompt;
     @Value("classpath:/prompt/assistant-prompt.st")
     private Resource assistantPrompt;
-
     @Autowired
-    public AIController(OllamaChatModel chatModel, VectorStore vectorStore) {
+    public AIController(OllamaChatModel chatModel, OllamaEmbeddingModel embeddingModel) {
         this.chatModel = chatModel;
-        this.vectorStore = vectorStore;
+        SolrClient solrClient = new HttpSolrClient.Builder("http://localhost:8983/solr/ms-marco").build();
+        this.vectorStore = SolrVectorStore.builder(solrClient, embeddingModel)
+                .options(new SolrSearchVectorStoreOptions())
+                .filterExpressionConverter(new SolrAiSearchFilterExpressionConverter())
+                .build();
     }
 
     @GetMapping("/ai")
