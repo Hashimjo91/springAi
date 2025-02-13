@@ -3,8 +3,8 @@ package org.example.springaitest.solrVectorStore;
 import org.apache.solr.client.solrj.SolrClient;
 import org.apache.solr.client.solrj.SolrQuery;
 import org.apache.solr.client.solrj.SolrServerException;
+import org.apache.solr.client.solrj.beans.Field;
 import org.apache.solr.client.solrj.response.QueryResponse;
-import org.apache.solr.common.SolrDocumentList;
 import org.apache.solr.common.SolrInputDocument;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.embedding.EmbeddingModel;
@@ -24,6 +24,7 @@ import java.io.IOException;
 import java.util.*;
 import java.util.stream.Collectors;
 
+@SuppressWarnings("NullableProblems")
 public class SolrVectorStore extends AbstractObservationVectorStore {
     private static final Map<SimilarityFunction, VectorStoreSimilarityMetric> SIMILARITY_TYPE_MAPPING;
 
@@ -49,13 +50,13 @@ public class SolrVectorStore extends AbstractObservationVectorStore {
     }
 
     @Override
-    public void doAdd(@NotNull List<Document> documents) {
+    public void doAdd(List<Document> documents) {
             List<float[]> embeddings = this.embeddingModel.embed(documents, EmbeddingOptionsBuilder.builder().build(), this.batchingStrategy);
 
             for (Document document : documents) {
                 SolrInputDocument doc = new SolrInputDocument();
                 doc.addField("id", document.getId());
-                doc.addField("doi", document.getId());
+                doc.addField("doi", document.getMetadata().get("doi"));
                 doc.addField("vector", Floats.asList(embeddings.get(documents.indexOf(document))));
                 doc.addField("content", document.getText());
                 try {
@@ -70,17 +71,13 @@ public class SolrVectorStore extends AbstractObservationVectorStore {
 
     @Override
     public void doDelete(@NotNull List<String> idList) {
-
-            Iterator var3 = idList.iterator();
-
-            while (var3.hasNext()) {
-                String id = (String) var3.next();
-                try {
-                    solrClient.deleteById(id);
-                } catch (SolrServerException | IOException e) {
-                    throw new RuntimeException(e);
-                }
+        for (String id : idList) {
+            try {
+                solrClient.deleteById(id);
+            } catch (SolrServerException | IOException e) {
+                throw new RuntimeException(e);
             }
+        }
 
     }
 
@@ -95,25 +92,30 @@ public class SolrVectorStore extends AbstractObservationVectorStore {
 
     }
 
-    @NotNull
+
     @Override
-    public List<Document> doSimilaritySearch(@NotNull SearchRequest searchRequest) {
+    public List<Document> doSimilaritySearch(SearchRequest searchRequest) {
         Assert.notNull(searchRequest, "The search request must not be null.");
 
         try {
             float threshold = (float) searchRequest.getSimilarityThreshold();
             float[] vectors = this.embeddingModel.embed(searchRequest.getQuery());
             String solrQueryString = this.getSolrQueryString(searchRequest.getFilterExpression());
-            String queryString = "{!knn f=vector topK=%s}%s".formatted(searchRequest.getTopK(), Floats.asList(vectors).toString());
+            String similarityQuery = getSimilarityQuery(searchRequest, threshold, vectors);
             SolrQuery query = new SolrQuery();
-            query.setQuery(queryString);
+            query.setQuery(similarityQuery);
             query.addFilterQuery(solrQueryString);
 
             QueryResponse response = this.solrClient.query(query);
-            return toDocument(response.getResults());
+            return toDocument(response.getBeans(SolrSearchDocument.class));
         } catch (IOException | SolrServerException var6) {
             throw new RuntimeException(var6);
         }
+    }
+
+    private static String getSimilarityQuery(SearchRequest searchRequest, float threshold, float[] vectors) {
+        return "{!vectorSimilarity f=vector minReturn=%s topK=%s}%s"
+                .formatted(threshold, searchRequest.getTopK(), Floats.asList(vectors).toString());
     }
 
     private String getSolrQueryString(Filter.Expression filterExpression) {
@@ -121,21 +123,19 @@ public class SolrVectorStore extends AbstractObservationVectorStore {
     }
 
 
-    private List<Document> toDocument(SolrDocumentList document) {
+    private List<Document> toDocument(List<SolrSearchDocument> document) {
         return document.stream().map(doc -> {
-            String id = (String) doc.get("id");
-            String text = ((ArrayList<String>) doc.get("content")).get(0);
-            ArrayList<Float> vectors = ((ArrayList<Float>) doc.get("vector"));
-            Document.Builder documentBuilder = Document.builder().id(id).text(text).metadata("vector", vectors);
-            return documentBuilder.build();
+            String id = doc.id;
+            String text = doc.content.get(0);
+            ArrayList<Float> vectors = (ArrayList<Float>) doc.vector;
+            String doi = doc.doi;
+            return Document.builder()
+                    .id(id)
+                    .text(text)
+                    .metadata("vector", vectors)
+                    .metadata("doi", doi)
+                    .build();
         }).collect(Collectors.toList());
-    }
-
-    private double normalizeSimilarityScore(double score) {
-        if (Objects.requireNonNull(this.options.getSimilarity()) == SimilarityFunction.l2_norm) {
-            return 1.0 - Math.sqrt(1.0 / score - 1.0);
-        }
-        return 2.0 * score - 1.0;
     }
 
     @NotNull
@@ -150,6 +150,7 @@ public class SolrVectorStore extends AbstractObservationVectorStore {
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public <T> Optional<T> getNativeClient() {
         T client = (T) this.solrClient;
         return Optional.of(client);
@@ -183,27 +184,38 @@ public class SolrVectorStore extends AbstractObservationVectorStore {
         }
     }
 
-    public static record SolrSearchDocument(String id, String content, String doi,
-                                            float[] embedding) {
-        public SolrSearchDocument(String id, String content, String doi, float[] embedding) {
+    public static class SolrSearchDocument {
+        @Field
+        private String id;
+        @Field
+        private List<String> content;
+        @Field
+        private String doi;
+        @Field
+        private List<Float> vector;
+
+        public SolrSearchDocument() {
+        }
+
+        public SolrSearchDocument(String id, List<String> content, String doi, List<Float> vector) {
             this.id = id;
             this.content = content;
             this.doi = doi;
-            this.embedding = embedding;
+            this.vector = vector;
         }
 
         public String id() {
             return this.id;
         }
 
-        public String content() {
+        public List<String> content() {
             return this.content;
         }
 
         public String doi() {return doi;}
 
-        public float[] embedding() {
-            return this.embedding;
+        public List<Float> vector() {
+            return this.vector;
         }
     }
 }

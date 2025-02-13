@@ -3,7 +3,6 @@ package org.example.springaitest.solrVectorStore;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
-import java.util.Iterator;
 import java.util.List;
 import java.util.TimeZone;
 import java.util.regex.Pattern;
@@ -45,41 +44,18 @@ public class SolrAiSearchFilterExpressionConverter extends AbstractFilterExpress
     }
 
     private String getOperationSymbol(Filter.Expression exp) {
-        String var10000;
-        switch (exp.type()) {
-            case AND:
-                var10000 = " AND ";
-                break;
-            case OR:
-                var10000 = " OR ";
-                break;
-            case EQ:
-            case IN:
-                var10000 = "";
-                break;
-            case NE:
-                var10000 = " NOT ";
-                break;
-            case LT:
-                var10000 = "<";
-                break;
-            case LTE:
-                var10000 = "<=";
-                break;
-            case GT:
-                var10000 = ">";
-                break;
-            case GTE:
-                var10000 = ">=";
-                break;
-            case NIN:
-                var10000 = "NOT ";
-                break;
-            default:
-                throw new RuntimeException("Not supported expression type: " + String.valueOf(exp.type()));
-        }
-
-        return var10000;
+        return switch (exp.type()) {
+            case AND -> " AND ";
+            case OR -> " OR ";
+            case EQ, IN -> "";
+            case NE -> " NOT ";
+            case LT -> "<";
+            case LTE -> "<=";
+            case GT -> ">";
+            case GTE -> ">=";
+            case NIN -> "NOT ";
+            default -> throw new RuntimeException("Not supported expression type: " + exp.type());
+        };
     }
 
     public void doKey(Filter.Key key, StringBuilder context) {
@@ -91,10 +67,8 @@ public class SolrAiSearchFilterExpressionConverter extends AbstractFilterExpress
         Object var4 = filterValue.value();
         if (var4 instanceof List list) {
             int c = 0;
-            Iterator var5 = list.iterator();
 
-            while(var5.hasNext()) {
-                Object v = var5.next();
+            for (Object v : list) {
                 context.append(v);
                 if (c++ < list.size() - 1) {
                     this.doAddValueRangeSpitter(filterValue, context);

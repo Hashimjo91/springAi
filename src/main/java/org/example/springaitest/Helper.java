@@ -37,11 +37,15 @@ public class Helper {
         return documents;
     }
 
-    public static long getUserId(HttpServletRequest request) {
+    public static User getUserId(HttpServletRequest request) {
         String userId = (String) request.getAttribute("userId");
         if (userId == null || userId.isBlank()) {
             userId = "10001";
         }
-        return Long.parseLong(userId);
+        return new User(Long.parseLong(userId), "Hashem");
+    }
+
+    public record User(long userId, String name){
+
     }
 }
