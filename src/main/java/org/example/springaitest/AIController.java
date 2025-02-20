@@ -29,7 +29,7 @@ class AIController {
 
     private final ChatService chatService;
 
-    @Autowired
+
     public AIController(ChatService chatService) {
         this.chatService = chatService;
     }
